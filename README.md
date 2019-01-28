@@ -1,24 +1,29 @@
-Graph Convolution over Pruned Dependency Trees for Relation Extraction
+State-LSTM for Relation Extraction
 ==========
 
-This repo contains the *PyTorch* code for the paper [Graph Convolution over Pruned Dependency Trees Improves Relation Extraction](https://nlp.stanford.edu/pubs/zhang2018graph.pdf). 
+This repo contains the *PyTorch* code for the [State-LSTM](https://arxiv.org/abs/1808.09101) in relation extraction task.  
 
-This paper/code introduces a graph convolutional neural network (GCN) over pruned dependency trees for the task of relation extraction. A special tree pruning technique called the Path-centric Pruning is also introduced to eliminate irrelevant information from the trees while maximally maintaining relevant information. Compared to sequence models such as various LSTM-based models, this GCN model makes use of dependency structures to bridge remote words, therefore improves performance for long-range relations. Compared to previous recursive models such as the TreeLSTM, this GCN model achieves better performance while being much eariser to parallelize and therefore much more efficient.
+Difference between this repo and the [code](https://github.com/freesunshine0316/nary-grn) released by author
+- this repo is more clean, while the author's code including many unrelated code for Machine Reading, Sequence Tagging.
+- this repo is implemented in adjacency matrix manner.
+- this is using PyTorch, the author's code is using Tensorflow.
+
+The scaffold is forked from [this repo](https://github.com/qipeng/gcn-over-pruned-trees/blob/master/model/gcn.py).
 
 See below for an overview of the model architecture:
 
-![GCN Architecture](fig/architecture.png "GCN Architecture")
+![State LSTM Architecture](fig/state-lstm.png "State-LSTM Architecture")
 
 ## Requirements
 
-- Python 3 (tested on 3.6.5)
-- PyTorch (tested on 0.4.0)
+- Python 3 (tested on 3.6.6)
+- PyTorch (tested on 0.4.1)
 - tqdm
 - unzip, wget (for downloading only)
 
 ## Preparation
 
-The code requires that you have access to the TACRED dataset (LDC license required). The TACRED dataset is currently scheduled for public release via LDC in December 2018. For possible early access to this data please contact us at `yuhao.zhang ~at~ stanford.edu`. Once you have the TACRED data, please put the JSON files under the directory `dataset/tacred`. For completeness, we only include sample data files from the TACRED dataset in this repo.
+The code requires that you have access to the [TACRED dataset](https://nlp.stanford.edu/projects/tacred/) (LDC license required). 
 
 First, download and unzip GloVe vectors from the Stanford NLP group website, with:
 ```
@@ -34,21 +39,14 @@ This will write vocabulary and word vectors as a numpy matrix into the dir `data
 
 ## Training
 
-To train a graph convolutional neural network (GCN) model, run:
+To train a state LSTM neural network model, run:
 ```
-bash train_gcn.sh 0
+bash train_sl.sh 0
 ```
 
 Model checkpoints and logs will be saved to `./saved_models/00`.
 
-To train a Contextualized GCN (C-GCN) model, run:
-```
-bash train_cgcn.sh 1
-```
-
-Model checkpoints and logs will be saved to `./saved_models/01`.
-
-For details on the use of other parameters, such as the pruning distance k, please refer to `train.py`.
+For details on the use of other parameters, such as the time_steps, please refer to `train.py`.
 
 ## Evaluation
 
@@ -66,19 +64,14 @@ Reload a pretrained model and finetune it, run:
 python train.py --load --model_file saved_models/01/best_model.pt --optim sgd --lr 0.001
 ```
 
-## Related Repo
-
-The paper also includes comparisons to the position-aware attention LSTM (PA-LSTM) model for relation extraction. To reproduce the corresponding results, please refer to [this repo](https://github.com/yuhaozhang/tacred-relation).
-
 ## Citation
 
 ```
-@inproceedings{zhang2018graph,
- author = {Zhang, Yuhao and Qi, Peng and Manning, Christopher D.},
- booktitle = {Empirical Methods in Natural Language Processing (EMNLP)},
- title = {Graph Convolution over Pruned Dependency Trees Improves Relation Extraction},
- url = {https://nlp.stanford.edu/pubs/zhang2018graph.pdf},
- year = {2018}
+@article{song2018n,
+  title={N-ary relation extraction using graph state LSTM},
+  author={Song, Linfeng and Zhang, Yue and Wang, Zhiguo and Gildea, Daniel},
+  journal={arXiv preprint arXiv:1808.09101},
+  year={2018}
 }
 ```
 

@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 
 from data.loader import DataLoader
-from model.trainer import GCNTrainer
+from model.trainer import GNNTrainer
 from utils import torch_utils, scorer, constant, helper
 from utils.vocab import Vocab
 
@@ -33,7 +33,7 @@ elif args.cuda:
 model_file = args.model_dir + '/' + args.model
 print("Loading model from {}".format(model_file))
 opt = torch_utils.load_config(model_file)
-trainer = GCNTrainer(opt)
+trainer = GNNTrainer(opt)
 trainer.load(model_file)
 
 # load vocab
@@ -48,7 +48,7 @@ batch = DataLoader(data_file, opt['batch_size'], opt, vocab, evaluation=True)
 
 helper.print_config(opt)
 label2id = constant.LABEL_TO_ID
-id2label = dict([(v,k) for k,v in label2id.items()])
+id2label = dict([(v, k) for k, v in label2id.items()])
 
 predictions = []
 all_probs = []
@@ -60,7 +60,7 @@ for i, b in enumerate(batch_iter):
 
 predictions = [id2label[p] for p in predictions]
 p, r, f1 = scorer.score(batch.gold(), predictions, verbose=True)
-print("{} set evaluate result: {:.2f}\t{:.2f}\t{:.2f}".format(args.dataset,p,r,f1))
+print("{} set evaluate result: {:.2f}\t{:.2f}\t{:.2f}".format(args.dataset, p, r, f1))
 
 print("Evaluation ended.")
 

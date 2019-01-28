@@ -16,7 +16,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 from data.loader import DataLoader
-from model.trainer import GCNTrainer
+from model.trainer import GNNTrainer
 from utils import torch_utils, scorer, constant, helper
 from utils.vocab import Vocab
 
@@ -26,8 +26,12 @@ parser.add_argument('--vocab_dir', type=str, default='dataset/vocab')
 parser.add_argument('--emb_dim', type=int, default=300, help='Word embedding dimension.')
 parser.add_argument('--ner_dim', type=int, default=30, help='NER embedding dimension.')
 parser.add_argument('--pos_dim', type=int, default=30, help='POS embedding dimension.')
+parser.add_argument('--edge_dim', type=int, default=30, help='Edge label embedding dimension.')
+parser.add_argument('--pe_dim', type=int, default=30, help='Position to entity embedding dimension.')
+parser.add_argument('--dd_dim', type=int, default=30, help='Distance to shortest dependency path dimension.')
+parser.add_argument('--attn_dim', type=int, default=200, help='Attention size.')
 parser.add_argument('--hidden_dim', type=int, default=200, help='RNN hidden state size.')
-parser.add_argument('--num_layers', type=int, default=2, help='Num of RNN layers.')
+parser.add_argument('--time_steps', type=int, default=5, help='Num of time steps.')
 parser.add_argument('--input_dropout', type=float, default=0.5, help='Input dropout rate.')
 parser.add_argument('--gcn_dropout', type=float, default=0.5, help='GCN layer dropout rate.')
 parser.add_argument('--word_dropout', type=float, default=0.04, help='The rate at which randomly set a word to UNK.')
@@ -39,6 +43,7 @@ parser.set_defaults(lower=False)
 parser.add_argument('--prune_k', default=-1, type=int, help='Prune the dependency tree to <= K distance off the dependency path; set to -1 for no pruning.')
 parser.add_argument('--conv_l2', type=float, default=0, help='L2-weight decay on conv layers only.')
 parser.add_argument('--pooling', choices=['max', 'avg', 'sum'], default='max', help='Pooling function type. Default max.')
+parser.add_argument('--pool_type', choices=['entity', 'attention', 'piece', 'tree', 'sentence', 'all'], default='sentence', help='Pooling layer type.')
 parser.add_argument('--pooling_l2', type=float, default=0, help='L2-penalty for all pooling output.')
 parser.add_argument('--mlp_layers', type=int, default=2, help='Number of output mlp layers.')
 parser.add_argument('--no_adj', dest='no_adj', action='store_true', help="Zero out adjacency matrix for ablation.")
@@ -51,7 +56,7 @@ parser.add_argument('--rnn_dropout', type=float, default=0.5, help='RNN dropout 
 parser.add_argument('--lr', type=float, default=1.0, help='Applies to sgd and adagrad.')
 parser.add_argument('--lr_decay', type=float, default=0.9, help='Learning rate decay rate.')
 parser.add_argument('--decay_epoch', type=int, default=5, help='Decay learning rate after this epoch.')
-parser.add_argument('--optim', choices=['sgd', 'adagrad', 'adam', 'adamax'], default='sgd', help='Optimizer: sgd, adagrad, adam or adamax.')
+parser.add_argument('--optim', choices=['sgd', 'adagrad', 'adam', 'adamax', 'adadelta'], default='sgd', help='Optimizer: sgd, adagrad, adam or adamax, adadelta.')
 parser.add_argument('--num_epoch', type=int, default=100, help='Number of total training epochs.')
 parser.add_argument('--batch_size', type=int, default=50, help='Training batch size.')
 parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
@@ -66,8 +71,11 @@ parser.add_argument('--seed', type=int, default=1234)
 parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
 parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
 
+parser.add_argument('--no-board', dest='board', action='store_false', help='Use TensorboardX.')
 parser.add_argument('--load', dest='load', action='store_true', help='Load pretrained model.')
 parser.add_argument('--model_file', type=str, help='Filename of the pretrained model.')
+parser.add_argument('--epoch_counter', type=int, default=20, help='Early stop max no improvement epoch number.')
+
 
 args = parser.parse_args()
 
@@ -112,17 +120,25 @@ file_logger = helper.FileLogger(model_save_dir + '/' + opt['log'], header="# epo
 # print model info
 helper.print_config(opt)
 
+# tensorboardX
+if opt['board']:
+    from tensorboardX import SummaryWriter
+    current_time = time.strftime("%Y-%m-%dT%H:%M", time.localtime())
+    log_dir = opt['save_dir'] + '/log/' + current_time
+    writer = SummaryWriter(log_dir=log_dir)
+
+
 # model
 if not opt['load']:
-    trainer = GCNTrainer(opt, emb_matrix=emb_matrix)
+    trainer = GNNTrainer(opt, emb_matrix=emb_matrix)
 else:
     # load pretrained model
-    model_file = opt['model_file'] 
+    model_file = opt['model_file']
     print("Loading model from {}".format(model_file))
     model_opt = torch_utils.load_config(model_file)
     model_opt['optim'] = opt['optim']
-    trainer = GCNTrainer(model_opt)
-    trainer.load(model_file)   
+    trainer = GNNTrainer(model_opt)
+    trainer.load(model_file)
 
 id2label = dict([(v,k) for k,v in label2id.items()])
 dev_score_history = []
@@ -132,6 +148,7 @@ global_step = 0
 global_start_time = time.time()
 format_str = '{}: step {}/{} (epoch {}/{}), loss = {:.6f} ({:.3f} sec/batch), lr: {:.6f}'
 max_steps = len(train_batch) * opt['num_epoch']
+epo_cnt = 0
 
 # start training
 for epoch in range(1, opt['num_epoch']+1):
@@ -143,8 +160,10 @@ for epoch in range(1, opt['num_epoch']+1):
         train_loss += loss
         if global_step % opt['log_step'] == 0:
             duration = time.time() - start_time
-            print(format_str.format(datetime.now(), global_step, max_steps, epoch,\
-                    opt['num_epoch'], loss, duration, current_lr))
+            print(format_str.format(datetime.now(), global_step, max_steps, epoch,
+                                    opt['num_epoch'], loss, duration, current_lr))
+            if opt['board']:
+                writer.add_scalar('Train/Loss', loss, global_step)
 
     # eval on dev
     print("Evaluating on dev set...")
@@ -155,10 +174,16 @@ for epoch in range(1, opt['num_epoch']+1):
         predictions += preds
         dev_loss += loss
     predictions = [id2label[p] for p in predictions]
-    train_loss = train_loss / train_batch.num_examples * opt['batch_size'] # avg loss per batch
+    train_loss = train_loss / train_batch.num_examples * opt['batch_size']  # avg loss per batch
     dev_loss = dev_loss / dev_batch.num_examples * opt['batch_size']
+    if opt['board']:
+        writer.add_scalars('train_process', {'train_loss': train_loss,
+                                             'dev_loss': dev_loss}, epoch)
 
     dev_p, dev_r, dev_f1 = scorer.score(dev_batch.gold(), predictions)
+    if opt['board']:
+        writer.add_scalars('F1_score', {'dev_f1': dev_f1}, epoch)
+
     print("epoch {}: train_loss = {:.6f}, dev_loss = {:.6f}, dev_f1 = {:.4f}".format(epoch,\
         train_loss, dev_loss, dev_f1))
     dev_score = dev_f1
@@ -172,6 +197,13 @@ for epoch in range(1, opt['num_epoch']+1):
         print("new best model saved.")
         file_logger.log("new best model saved at epoch {}: {:.2f}\t{:.2f}\t{:.2f}"\
             .format(epoch, dev_p*100, dev_r*100, dev_score*100))
+        epo_cnt = 0
+    else:
+        epo_cnt += 1
+        if epo_cnt >= opt['epoch_counter']:
+            print("no significant improvement, early stop.")
+            sys.exit(0)
+
     if epoch % opt['save_epoch'] != 0:
         os.remove(model_file)
 

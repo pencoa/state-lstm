@@ -30,7 +30,7 @@ class DataLoader(object):
             indices = list(range(len(data)))
             random.shuffle(indices)
             data = [data[i] for i in indices]
-        self.id2label = dict([(v,k) for k,v in self.label2id.items()])
+        self.id2label = dict([(v, k) for k, v in self.label2id.items()])
         self.labels = [self.id2label[d[-1]] for d in data]
         self.num_examples = len(data)
 
@@ -63,7 +63,9 @@ class DataLoader(object):
             subj_type = [constant.SUBJ_NER_TO_ID[d['subj_type']]]
             obj_type = [constant.OBJ_NER_TO_ID[d['obj_type']]]
             relation = self.label2id[d['relation']]
-            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, relation)]
+            piece_positions = [d['subj_start'], d['subj_end'], d['obj_start'], d['obj_end'], l]
+            piece_positions.sort()
+            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, piece_positions, relation)]
         return processed
 
     def gold(self):
@@ -82,7 +84,7 @@ class DataLoader(object):
         batch = self.data[key]
         batch_size = len(batch)
         batch = list(zip(*batch))
-        assert len(batch) == 10
+        assert len(batch) == 11
 
         # sort all fields by lens for easy RNN operations
         lens = [len(x) for x in batch[0]]
@@ -105,10 +107,11 @@ class DataLoader(object):
         obj_positions = get_long_tensor(batch[6], batch_size)
         subj_type = get_long_tensor(batch[7], batch_size)
         obj_type = get_long_tensor(batch[8], batch_size)
+        piece_positions = torch.LongTensor(batch[9])
 
-        rels = torch.LongTensor(batch[9])
+        rels = torch.LongTensor(batch[10])
 
-        return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, rels, orig_idx)
+        return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, piece_positions, rels, orig_idx)
 
     def __iter__(self):
         for i in range(self.__len__()):

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 
-from model.gcn import GCNClassifier
+from model.grn import GGNNClassifier
 from utils import constant, torch_utils
 
 class Trainer(object):
@@ -47,11 +47,11 @@ class Trainer(object):
 
 def unpack_batch(batch, cuda):
     if cuda:
-        inputs = [Variable(b.cuda()) for b in batch[:10]]
-        labels = Variable(batch[10].cuda())
+        inputs = [Variable(b.cuda()) for b in batch[:11]]
+        labels = Variable(batch[11].cuda())
     else:
-        inputs = [Variable(b) for b in batch[:10]]
-        labels = Variable(batch[10])
+        inputs = [Variable(b) for b in batch[:11]]
+        labels = Variable(batch[11])
     tokens = batch[0]
     head = batch[5]
     subj_pos = batch[6]
@@ -59,11 +59,11 @@ def unpack_batch(batch, cuda):
     lens = batch[1].eq(0).long().sum(1).squeeze()
     return inputs, labels, tokens, head, subj_pos, obj_pos, lens
 
-class GCNTrainer(Trainer):
+class GNNTrainer(Trainer):
     def __init__(self, opt, emb_matrix=None):
         self.opt = opt
         self.emb_matrix = emb_matrix
-        self.model = GCNClassifier(opt, emb_matrix=emb_matrix)
+        self.model = GGNNClassifier(opt, emb_matrix=emb_matrix)
         self.criterion = nn.CrossEntropyLoss()
         self.parameters = [p for p in self.model.parameters() if p.requires_grad]
         if opt['cuda']:
@@ -79,9 +79,9 @@ class GCNTrainer(Trainer):
         self.optimizer.zero_grad()
         logits, pooling_output = self.model(inputs)
         loss = self.criterion(logits, labels)
-        # l2 decay on all conv layers
-        if self.opt.get('conv_l2', 0) > 0:
-            loss += self.model.conv_l2() * self.opt['conv_l2']
+        # # l2 decay on all conv layers
+        # if self.opt.get('conv_l2', 0) > 0:
+        #     loss += self.model.conv_l2() * self.opt['conv_l2']
         # l2 penalty on output representations
         if self.opt.get('pooling_l2', 0) > 0:
             loss += self.opt['pooling_l2'] * (pooling_output ** 2).sum(1).mean()
@@ -94,7 +94,7 @@ class GCNTrainer(Trainer):
 
     def predict(self, batch, unsort=True):
         inputs, labels, tokens, head, subj_pos, obj_pos, lens = unpack_batch(batch, self.opt['cuda'])
-        orig_idx = batch[11]
+        orig_idx = batch[12]
         # forward
         self.model.eval()
         logits, _ = self.model(inputs)
